@@ -7,7 +7,7 @@ use Phalcon\Loader;
 use Phalcon\Http\Response;
 
 /*
- * Le $loader est nécessaire pour charger correctement le models (Robots en l'occurence)
+ * $loader is necessary for load corectly the models
  */
 
 $loader = new Loader;
@@ -18,7 +18,9 @@ $loader->registerDirs(array(
 
 $di = new FactoryDefault;
 
-//Set up the database service
+/**
+ * Set up the database service
+ */
 $di->set('db', function(){
     return new MysqlAdapter(array(
         "host"     => "nick.dev",
@@ -29,10 +31,141 @@ $di->set('db', function(){
 });
 
 /*
- * Ne pas oublier d'ajouter $di lors de l'instanciation de la classe Micro
+ * Don't forget to add $di before instanciation of the Micro class
  */
 
 $app = new Micro($di);
+
+/**
+ * CUSTOM QUERY
+ */
+
+$app->get('/api/customquery/{param}', function($param) use($app) {
+
+    $phql = $param;
+    $query = $app->modelsManager->executeQuery($phql, array(
+        'id' => $id
+    ));
+
+    //Create a response
+    $response = new Response;
+
+    if ($robot == false) {
+        $response->setJsonContent(array('status' => 'NOT-FOUND'));
+    } else {
+        $response->setJsonContent(array(
+            'status' => 'FOUND',
+            'data' => array(
+                'id' => $robot->id,
+                'name' => $robot->name,
+                'type' => $robot->type,
+                'year' => $robot->year
+            )
+        ));
+    }
+    return $response;
+});
+
+/**
+ * COUNT
+ */
+
+$app->get('/api/count/user', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns('COUNT(userId) as totalUser')
+                ->from('User')
+                ->getQuery()
+                ->execute();
+        
+    $data = 0;
+    foreach($total as $t)
+        $data = $t->totalUser;
+    
+    echo json_encode($data);
+});
+
+$app->get('/api/count/ticket', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns('COUNT(pticId) as totalTicket')
+                ->from('PrizeTicket')
+                ->where('pticWinningUser IS NULL')
+                ->getQuery()
+                ->execute();
+        
+    $data = 0;
+    foreach($total as $t)
+        $data = $t->totalTicket;
+    
+    echo json_encode($data);
+});
+
+$app->get('/api/count/winningTicket', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns('COUNT(pticId) as totalWinningTicket')
+                ->from('PrizeTicket')
+                ->where('pticWinningUser IS NOT NULL')
+                ->getQuery()
+                ->execute();
+        
+    $data = 0;
+    foreach($total as $t)
+        $data = $t->totalWinningTicket;
+    
+    echo json_encode($data);
+});
+
+$app->get('/api/count/restaurant', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns('COUNT(restId) as totalRest')
+                ->from('Restaurant')
+                ->getQuery()
+                ->execute();
+        
+    $data = 0;
+    foreach($total as $t)
+        $data = $t->totalRest;
+    
+    echo json_encode($data);
+});
+
+$app->get('/api/count/maxLocalite', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns(array('count(User.userCity) as NbVille', 'City.cityName'))
+                ->from('User')
+                ->join('City', 'User.userCity = City.cityId')
+                ->groupBy(Array('User.userCity'))
+                ->orderBy('NbVille DESC')
+                ->limit(1)
+                ->getQuery()
+                ->execute();
+        
+    $data = Array();
+    foreach($total as $t)
+        $data[] = Array(
+            'cityName'  => $t->cityName,
+            'nbVille'   => $t->NbVille);
+    
+    echo json_encode($data);
+});
+
+/**
+ * AVG
+ */
+
+$app->get('/api/avg/user', function() use($app) {
+    $total = $app->modelsManager->createBuilder()
+                ->columns('AVG(DATEDIFF(NOW(), userDateBirth)) as AvgAge')
+                ->from('User')
+                ->getQuery()
+                ->execute();
+        
+    $data = null;
+    foreach($total as $t)
+        $data = $t->AvgAge;
+    
+    echo json_encode($data);
+});
+
 
 /**
  * PAYS
@@ -141,12 +274,27 @@ $app->get('/api/restaurant/search/{param}', function($param) use ($app) {
 
 });
 
-// get distance
+/**
+ * PRIZE TYPE
+ */
 
-
-
-
-
+$app->get('/api/prize', function() use($app) {
+    $prize = $app->modelsManager->createBuilder()
+                ->columns('ptypTitle, ptypRunQuantity')
+                ->from('PrizeType')
+                ->getQuery()
+                ->execute();
+    
+    $data = Array();
+    foreach($prize as $p) {
+        $data[] = Array(
+            'title'     => $p->ptypTitle,
+            'quantity'  => $p->ptypRunQuantity
+        );
+    }
+    
+    echo json_encode($data);
+});
 
 /**
  * USERS
@@ -294,31 +442,134 @@ $app->put('/api/update/user/{id:[0-9]+}', function($id) use($app) {
  * TICKETS
  */
 
-$app->get('/api/ticket', function() use($app) {
-    $pays = $app->modelsManager->createBuilder()
+$app->get('/api/ticket/{limit}/{start}', function($limit, $start) use($app) {
+    $ticket = $app->modelsManager->createBuilder()
                 ->columns(array('prizeTicket.*', 'prizeType.*'))
                 ->from('prizeTicket')
                 ->join('prizeType', 'prizeTicket.pticPrizeType = prizeType.ptypId')
                 ->orderBy('prizeTicket.pticId')
+                ->limit($limit, $start)
                 ->getQuery()
                 ->execute();
         
     $data = Array();
-    foreach($pays as $p) {
+    foreach($ticket as $t) {
         $data[] = Array(
-            'pticId'                        => $p->prizeTicket->pticId,
-            'pticTicketCode1'               => $p->prizeTicket->pticTicketCode1,
-            'pticWinningUser'               => $p->prizeTicket->pticWinningUser,
-            'pticCollectionRestaurant'      => $p->prizeTicket->pticCollectionRestaurant,
-            'pticDateVerified'              => $p->prizeTicket->pticDateVerified,
-            'pticDateCollected'             => $p->prizeTicket->pticDateCollected,
-            'ptypTitle'                     => $p->prizeType->ptypTitle
+            'pticId'                        => $t->prizeTicket->pticId,
+            'pticTicketCode1'               => $t->prizeTicket->pticTicketCode1,
+            'pticWinningUser'               => $t->prizeTicket->pticWinningUser,
+            'pticCollectionRestaurant'      => $t->prizeTicket->pticCollectionRestaurant,
+            'pticDateVerified'              => $t->prizeTicket->pticDateVerified,
+            'pticDateCollected'             => $t->prizeTicket->pticDateCollected,
+            'ptypTitle'                     => $t->prizeType->ptypTitle
         );
     }
     echo json_encode($data);
 });
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * USERS
+ */
+
+$app->get('/api/user/{limit}/{start}', function($limit, $start) use($app) {
+    $user = $app->modelsManager->createBuilder()
+                ->columns(array('User.*', 'Pays.*', 'Languages.*', 'City.*', 'Restaurant.*'))
+                ->from('User')
+                ->join('Pays',          'Pays.paysCodeIso   = User.userCountry')
+                ->join('Languages',     'Languages.langCode = User.userPreferredLanguage')
+                ->join('City',          'City.cityId        = User.userCity')
+                ->join('Restaurant',    'Restaurant.restId  = User.userPreferredRestaurant')
+                ->orderBy('User.userId')
+                ->limit($limit, $start)
+                ->getQuery()
+                ->execute();
+        
+    $data = Array();
+    foreach($user as $u) {
+        $data[] = Array(
+            'userId'                        => $u->user->userId,
+            'userLogin'                     => $u->user->userLogin,
+            'userName'                      => $u->user->userName,
+            'userFirstName'                 => $u->user->userFirstName,
+            'userEmail'                     => $u->user->userEmail,
+            'userTelFixed'                  => $u->user->userTelFixed,
+            'userTelMob'                    => $u->user->userTelMob,
+            'userGender'                    => $u->user->userGender,
+            'userDateJoined'                => $u->user->userDateJoined,
+            'userAccountActive'             => $u->user->userAccountActive,
+            'userLoginLocked'               => $u->user->userLoginLocked,
+            'paysName'                      => $u->pays->paysName,
+            'langName'                      => $u->languages->langName,
+            'cityName'                      => $u->city->cityName,
+            'cityCp'                        => $u->city->cityCp,
+            'restName'                      => $u->restaurant->restName
+        );
+    }
+    echo json_encode($data);
+});
+
+$app->get('/api/user/filter/{champs}/{operateur}/{value}', function($champs, $operateur, $value) use($app) {
+
+    $clause = null;
+    switch ($operateur){
+        case 'egal':
+            $clause = $champs." = '".$value."'";
+            break;
+        case 'like':
+            $clause = $champs." LIKE '%".$value."%'";
+            break;
+        case 'different':
+            $clause = $champs." <> ".$value;
+            break;
+    }
+    
+    $user = $app->modelsManager->createBuilder()
+                ->columns(array('User.*', 'Pays.*', 'Languages.*', 'City.*', 'Restaurant.*'))
+                ->from('User')
+                ->join('Pays',          'Pays.paysCodeIso   = User.userCountry')
+                ->join('Languages',     'Languages.langCode = User.userPreferredLanguage')
+                ->join('City',          'City.cityId        = User.userCity')
+                ->join('Restaurant',    'Restaurant.restId  = User.userPreferredRestaurant')
+                ->orderBy('User.userId')
+                ->where($clause)
+                ->getQuery()
+                ->execute();
+
+    //Create a response
+    $response = new Response;
+
+    if ($user == false) {
+        $response->setJsonContent(array('status' => 'NOT-FOUND'));
+    } else {        
+        $data = Array();
+        foreach($user as $u) {
+            $data[] = Array(
+                'userId'                        => $u->user->userId,
+                'userLogin'                     => $u->user->userLogin,
+                'userName'                      => $u->user->userName,
+                'userFirstName'                 => $u->user->userFirstName,
+                'userEmail'                     => $u->user->userEmail,
+                'userTelFixed'                  => $u->user->userTelFixed,
+                'userTelMob'                    => $u->user->userTelMob,
+                'userGender'                    => $u->user->userGender,
+                'userDateJoined'                => $u->user->userDateJoined,
+                'userAccountActive'             => $u->user->userAccountActive,
+                'userLoginLocked'               => $u->user->userLoginLocked,
+                'paysName'                      => $u->pays->paysName,
+                'langName'                      => $u->languages->langName,
+                'cityName'                      => $u->city->cityName,
+                'cityCp'                        => $u->city->cityCp,
+                'restName'                      => $u->restaurant->restName
+            );
+        }
+        
+        $response->setJsonContent($data);
+    }
+    
+    return $response;
+});
 
 //Retrieves robots based on primary key
 $app->get('/api/robots/{id:[0-9]+}', function($id) use ($app) {
